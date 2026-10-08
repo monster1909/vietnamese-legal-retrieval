@@ -1,0 +1,13 @@
+torch>=2.2
+sentence-transformers>=4.0
+transformers>=4.56
+sentencepiece
+datasets
+accelerate
+numpy
+pandas
+pyarrow
+scipy
+optuna
+tqdm
+psutil
