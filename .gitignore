@@ -1,36 +1,23 @@
-# --- Env---
+# Environment
 .venv/
 __pycache__/
-.pytest_cache
 *.pyc
 .DS_Store
+.ruff_cache/
 .claude/
-.superpowers/
+CLAUDE.md
 
-# --- Data  ---
-train.json
-public-official.json
-private-official.json
-selected-contexts/
-selected-contexts.zip
-*.docx
-
-# --- artifact ---
-work/
-output/
+# Local data, models and outputs (never committed)
+/data/
+/artifacts/
+/output/
 *.npy
 *.npz
-*.pkl
 *.parquet
-optuna_study.db
+*.db
 
-# --- Local ---
-tests/
-pytest.ini
-docs/
-
-# --- Runs / submissions (local only) ---
-V3 - */
-retune_*/
-submission*.zip
-NEXT_STEPS.md
+# Competition data must never be committed, wherever it lands
+train.json
+*-official.json
+selected-contexts*
+!examples/data/**
