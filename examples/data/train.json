@@ -1,0 +1,21 @@
+{
+  "100001": {
+    "question": "Hồ sơ đăng ký thường trú gồm những giấy tờ gì?",
+    "answer": [
+      "900001"
+    ]
+  },
+  "100002": {
+    "question": "Không đội mũ bảo hiểm khi đi xe máy bị phạt bao nhiêu tiền?",
+    "answer": [
+      "900002"
+    ]
+  },
+  "100003": {
+    "question": "Kết hôn với người nước ngoài cần đáp ứng điều kiện và chuẩn bị hồ sơ gì?",
+    "answer": [
+      "900003",
+      "900004"
+    ]
+  }
+}
