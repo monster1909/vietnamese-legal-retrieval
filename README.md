@@ -27,7 +27,7 @@ Built for the UIT Data Science Challenge 2026 legal retrieval task (8.5k documen
 
 ## Chunking
 
-<img src="docs/figures/chunking.png" width="420" alt="Legal-aware chunking">
+![Legal-aware chunking](docs/figures/chunking.png)
 
 - Documents are cut at *Điều → khoản → điểm*, then paragraph and sentence if a piece is still too long.
 - Every chunk starts with a header: document number, issuer, title and chapter. A clause from the middle of a document still says which document it belongs to.
