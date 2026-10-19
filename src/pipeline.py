@@ -5,11 +5,13 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import re
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .config import CFG, Paths
+from .retrieval.scoring import ScoringParams
 
 ENCODER = "models/encoder"
 ENCODER_FT1 = "models/encoder_ft1"
@@ -18,6 +20,7 @@ EMB_FT1 = "emb_encoder_ft1.npy"
 CHUNKS = "chunks.parquet"
 BM25 = "bm25_index.npz"
 BEST_CONFIG = "best_config.json"
+DOCS = "docs.json"  # doc_id -> {name, link}, for display
 
 # Candidate pool used to collect reranker scores before tuning.
 POOL_TOP_K = 1000
@@ -54,6 +57,12 @@ def _load_encoders(art: Path):
 
 
 
+def write_doc_index(docs, art: Path) -> None:
+    """Save {doc_id: {name, link}} used to label search results."""
+    index = {str(d.id): {"name": d.name, "link": d.link} for d in docs}
+    (art / DOCS).write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
+
+
 def train(data_dir: Path, art: Path) -> None:
     """Chunk the corpus, build BM25 and fine-tune the bi-encoder in two hard-negative rounds."""
     from .chunking import build_chunks
@@ -81,6 +90,7 @@ def train(data_dir: Path, art: Path) -> None:
             cfg=CFG.bm25,
         )
         bm25.save(art / BM25)
+        write_doc_index(docs, art)
     texts = chunks["text"].tolist()
     print(f"[train] {len(chunks):,} chunks / {chunks['doc_id'].nunique():,} documents")
 
@@ -184,7 +194,31 @@ def tune(data_dir: Path, art: Path, n_trials: int = 1500) -> dict:
 @dataclass
 class Hit:
     doc_id: int
-    text: str  # best-matching chunk of the document
+    title: str  # document number, issuer and subject
+    link: str
+    passage: str  # best-matching chunk body
+
+
+LAW_NAME = re.compile(r"\b(?:BỘ\s+)?LUẬT\b")
+DOC_NO = re.compile(r"\b[Ss]ố:\s*([\w/.-]*\d[\w/.-]*)")
+
+
+def complete_title(title: str, opening: str) -> str:
+    """Fill in the law name, number and issuer that header parsing misses on codes and laws."""
+    parts = [p.strip() for p in title.split(" — ")]
+    i = 1 if len(parts) > 1 else 0
+    parts[i] = issuer = re.sub(r"\s+nghĩa việt nam$", "", parts[i])
+    opening = " ".join(opening.split())[:600]
+    if parts[0] in ("Luật", "Bộ luật", "Quốc hội") and (m := LAW_NAME.search(opening)):
+        words = []
+        for w in opening[m.start():].split()[:14]:
+            if not w.rstrip(",").isupper():
+                break
+            words.append(w)
+        name = " ".join(words).split(" CỦA NƯỚC")[0].capitalize()
+        no = DOC_NO.search(opening)
+        return " — ".join([f"{name} {no.group(1)}" if no else name, issuer])
+    return " — ".join(parts)
 
 
 class Searcher:
@@ -197,23 +231,46 @@ class Searcher:
         from .tune import load_best_config
 
         art = Path(art)
-        params = load_best_config(art / BEST_CONFIG)
+        self.params = load_best_config(art / BEST_CONFIG)
         if not rerank:
-            params.alpha = 0.0
+            self.params.alpha = 0.0
         self.chunks = _load_chunks(art)
         enc, index, enc1, index1 = _load_encoders(art)
         self.retriever = HybridRetriever(
-            self.chunks, enc, index, enc1, index1, BM25Index.load(art / BM25), params,
-            reranker=Reranker(cfg=CFG.model) if params.alpha > 0 else None,
+            self.chunks, enc, index, enc1, index1, BM25Index.load(art / BM25), self.params,
+            reranker=Reranker(cfg=CFG.model) if self.params.alpha > 0 else None,
         )
+        docs_path = art / DOCS
+        self.docs = json.loads(docs_path.read_text(encoding="utf-8")) if docs_path.exists() else {}
         first = self.chunks.drop_duplicates("doc_id")
-        self._doc_text = dict(zip(first["doc_id"].astype(int), first["text"]))
+        self._opening = dict(zip(first["doc_id"].astype(int), first["raw_text"]))
+
+    def _params(self, k: int, rerank: bool, rerank_top_n: int | None) -> ScoringParams:
+        p = replace(self.params, final_k=k)
+        if not rerank:
+            p.alpha = 0.0
+        elif rerank_top_n is not None:
+            p.rerank_top_n = min(p.rerank_top_n, rerank_top_n)
+        return p
 
     def retrieve(self, queries: list[str], k: int = 5) -> list[list[int]]:
-        return self.retriever.retrieve(queries, top_k=k, show_progress=len(queries) > 1)
+        out = self.retriever.retrieve(queries, self._params(k, True, None), show_progress=len(queries) > 1)
+        return [[d for d, _ in hits] for hits in out]
 
-    def search(self, query: str, k: int = 5) -> list[Hit]:
-        return [Hit(int(d), self._doc_text[int(d)]) for d in self.retrieve([query], k)[0]]
+    def search(self, query: str, k: int = 5, rerank: bool = True, rerank_top_n: int | None = None) -> list[Hit]:
+        """Top-k documents for one query; rerank_top_n caps reranker cost for CPU serving."""
+        hits = self.retriever.retrieve([query], self._params(k, rerank, rerank_top_n), show_progress=False)[0]
+        out = []
+        for doc_id, cid in hits:
+            row = self.chunks.iloc[cid]
+            title = row["text"][: len(row["text"]) - len(row["raw_text"])].split(" | ")[0].strip()
+            title = complete_title(title, self._opening[doc_id])
+            meta = self.docs.get(str(doc_id), {})
+            # Header parsing fails on some layouts (codes, standards); the URL slug is cleaner then.
+            if " — " not in title and meta.get("name"):
+                title = re.sub(r"-\d{5,}$", "", meta["name"]).replace("-", " ")
+            out.append(Hit(int(doc_id), title, meta.get("link", ""), row["raw_text"]))
+        return out
 
 
 def predict(questions_json: Path, art: Path, out_dir: Path, k: int = 5) -> Path:
@@ -274,7 +331,7 @@ def main(argv: list[str] | None = None) -> None:
         predict(a.questions, a.artifacts, a.out, a.k)
     else:
         for i, hit in enumerate(Searcher(a.artifacts).search(a.query, a.k), 1):
-            print(f"{i}. doc {hit.doc_id}: {' '.join(hit.text.split())[:200]}")
+            print(f"{i}. [{hit.doc_id}] {hit.title}\n   {' '.join(hit.passage.split())[:200]}")
 
 
 if __name__ == "__main__":

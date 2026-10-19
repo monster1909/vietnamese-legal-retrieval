@@ -98,6 +98,23 @@ def blend_rerank(
     return {d: p.alpha * nl.get(d, 0.0) + (1.0 - p.alpha) * s for d, s in normed.items()}
 
 
+def rank_with_chunks(
+    rank_lists: Sequence[Sequence[int]],
+    weights: Sequence[float],
+    rerank_lookup: dict[int, float],
+    chunk_doc: np.ndarray,
+    p: ScoringParams,
+) -> list[tuple[int, int]]:
+    """Full scoring for one query; returns (doc_id, best chunk_id) for the top final_k documents."""
+    chunk_scores = rrf_chunk_scores(rank_lists, weights, p.rrf_k)
+    if not chunk_scores:
+        return []
+    doc_scores, best_chunks = pool_to_docs(chunk_scores, chunk_doc, p.pool_lambda, p.chunks_per_doc)
+    scores = blend_rerank(doc_scores, best_chunks, rerank_lookup, p)
+    top = sorted(scores, key=scores.get, reverse=True)[: p.final_k]
+    return [(d, max(best_chunks[d], key=lambda c: rerank_lookup.get(c, -1e9))) for d in top]
+
+
 def rank_one(
     rank_lists: Sequence[Sequence[int]],
     weights: Sequence[float],
@@ -105,10 +122,5 @@ def rank_one(
     chunk_doc: np.ndarray,
     p: ScoringParams,
 ) -> list[int]:
-    """Full scoring for one query; returns the top final_k document ids."""
-    chunk_scores = rrf_chunk_scores(rank_lists, weights, p.rrf_k)
-    if not chunk_scores:
-        return []
-    doc_scores, best_chunks = pool_to_docs(chunk_scores, chunk_doc, p.pool_lambda, p.chunks_per_doc)
-    scores = blend_rerank(doc_scores, best_chunks, rerank_lookup, p)
-    return sorted(scores, key=scores.get, reverse=True)[: p.final_k]
+    """Top final_k document ids for one query."""
+    return [d for d, _ in rank_with_chunks(rank_lists, weights, rerank_lookup, chunk_doc, p)]
