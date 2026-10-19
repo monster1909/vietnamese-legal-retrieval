@@ -21,3 +21,4 @@ train.json
 *-official.json
 selected-contexts*
 !examples/data/**
+Paper/

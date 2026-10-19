@@ -11,3 +11,4 @@ scipy
 optuna
 tqdm
 psutil
+gradio
