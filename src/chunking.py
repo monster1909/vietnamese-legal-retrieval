@@ -11,8 +11,9 @@ from .config import CFG, ChunkConfig
 from .data import Document
 from .doc_header import build_prefix
 
-# Anchored at line start so in-sentence references like "tại Điều 5" do not split.
-ARTICLE_RE = re.compile(r"^[ \t]*(?=Điều\s+\d+[a-zđ]?\b)", re.MULTILINE)
+# A heading is "Điều 5." / "Điều 5:" / "Điều 5-" or a bare "Điều 5" line; references such as
+# "Điều 11 Luật Đặc xá" that a line break pushed to line start are followed by words and do not split.
+ARTICLE_RE = re.compile(r"^[ \t]*(?=Điều\s+\d+[a-zđ]?\s*(?:[.:\-–]|$))", re.MULTILINE)
 SECTION_RE = re.compile(r"^[ \t]*(?=(?:Chương|Mục|Phần)\s+[IVXLCĐ0-9]+\b)", re.MULTILINE)
 
 SECTION_HEADING_RE = re.compile(
@@ -165,6 +166,14 @@ def _pack(
     return packed
 
 
+def article_heading(part: str, max_chars: int = 200) -> str:
+    """Heading of an article part ("Điều 4. ..."), up to its first clause; "" if part is not an article."""
+    if not ARTICLE_RE.match(part):
+        return ""
+    head = KHOAN_RE.split(part, maxsplit=1)[0]
+    return " ".join(head.split())[:max_chars]
+
+
 def chunk_document(
     doc: Document, cfg: ChunkConfig = CFG.chunk
 ) -> tuple[list[tuple[str, str]], str]:
@@ -191,8 +200,13 @@ def chunk_document(
     atoms: list[tuple[str, str]] = []
     for pos, p in parts:
         crumb = breadcrumb_at(markers, pos) if markers else ""
-        for a in _atomize(p, body_budget, cfg.overlap_chars):
-            atoms.append((a, crumb))
+        pieces = _atomize(p, body_budget, cfg.overlap_chars)
+        heading = article_heading(p) if cfg.repeat_article_heading and len(pieces) > 1 else ""
+        # Pieces after the one holding the heading name their article in the breadcrumb.
+        first = 2 if heading and " ".join(pieces[0].split()) == heading else 1
+        cont = " > ".join(x for x in (crumb, heading) if x)
+        for i, a in enumerate(pieces):
+            atoms.append((a, crumb if i < first or not heading else cont))
 
     bodies = _pack(atoms, body_budget, cfg.min_chars)
     return [(b, c) for b, c in bodies if b.strip()], prefix

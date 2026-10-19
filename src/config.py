@@ -32,6 +32,7 @@ class ChunkConfig:
     prepend_title: bool = True
     prefix_max_chars: int = 320
     add_breadcrumb: bool = True  # e.g. "Chương III > Mục 1"
+    repeat_article_heading: bool = True  # continuation chunks of a long article name it in the breadcrumb
 
 
 @dataclass
