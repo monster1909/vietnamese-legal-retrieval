@@ -34,6 +34,20 @@ Built for the UIT Data Science Challenge 2026 legal retrieval task (8.5k documen
 - When a long article is split, the later chunks repeat the article heading.
 - For BM25, document numbers like `75/2017/NĐ-CP` stay one token, accents are removed and syllable bigrams stand in for Vietnamese word segmentation.
 
+## Ablation
+
+Each stage on the 1,000 validation questions, all other parameters fixed at the tuned values:
+
+| Setup | Recall@5 | MRR |
+|---|---|---|
+| BM25 | 85.8 | 70.3 |
+| Bi-encoder, round 1 (negatives from BM25) | 92.4 | 82.5 |
+| Bi-encoder, round 2 (negatives from round 1) | 93.4 | 84.8 |
+| RRF fusion of the three | 94.7 | 85.6 |
+| Fusion + reranker | **96.4** | **87.6** |
+
+Fusion parameters were tuned on 700 of these questions. On the other 300, the full pipeline gets 95.5. Reproduce with `python -m src.pipeline ablate` (CPU only, reads the cached rankings in `artifacts/`).
+
 ## Quickstart
 
 ```bash
@@ -47,7 +61,7 @@ bash scripts/infer.sh search "<question>" -k 5                                  
 bash scripts/infer.sh predict examples/data/questions.json -o output            # a file of questions
 ```
 
-Search needs the trained artifacts in `artifacts/`. No GPU? [`notebooks/infer.ipynb`](notebooks/infer.ipynb) runs the same commands on Google Colab. Run a script with `-h` to see all options.
+Search needs the trained artifacts in `artifacts/` (fine-tuned encoders, embeddings, BM25 index). They are not distributed because they are built from the organizers' data. `bash scripts/train.sh` rebuilds them from the competition data. No GPU? [`notebooks/infer.ipynb`](notebooks/infer.ipynb) runs the same commands on Google Colab. Run a script with `-h` to see all options.
 
 The competition data is not included. [`examples/data/`](examples/data) has a few synthetic files in the same format.
 
@@ -56,7 +70,7 @@ The competition data is not included. [`examples/data/`](examples/data) has a fe
 
 ```
 src/
-├── pipeline.py        CLI: train, tune, evaluate, predict, search
+├── pipeline.py        CLI: train, tune, evaluate, ablate, predict, search
 ├── config.py          hyperparameters
 ├── data.py            loading
 ├── doc_header.py      parses number / issuer / title from document headers
