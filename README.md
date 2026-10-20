@@ -65,6 +65,28 @@ Search needs the trained artifacts in `artifacts/` (fine-tuned encoders, embeddi
 
 The competition data is not included. [`examples/data/`](examples/data) has a few synthetic files in the same format.
 
+### Demo UI
+
+```bash
+python -m demo.app          # Gradio at http://localhost:7860
+```
+
+### REST API
+
+```bash
+uvicorn api.main:app --port 8000
+# or with Docker, artifacts mounted at run time
+docker build -f api/Dockerfile -t legal-retrieval-api .
+docker run -p 8000:8000 -v ./artifacts:/app/artifacts legal-retrieval-api
+```
+
+```bash
+curl -X POST localhost:8000/search -H "Content-Type: application/json" \
+  -d '{"question": "Người lao động được nghỉ phép năm bao nhiêu ngày?", "k": 3, "rerank": false}'
+```
+
+`POST /search` returns `{"results": [{"doc_id", "title", "link", "passage"}, ...]}`; `GET /health` returns `{"status": "ok"}`. `rerank: true` adds the cross-encoder (slower on CPU). The reranker base model is downloaded from Hugging Face on first start. The container needs about 7 GB of RAM; with less it starts swapping and slows down (on Docker Desktop, raise Settings → Resources → Memory).
+
 <details>
 <summary>Project layout</summary>
 
@@ -80,6 +102,8 @@ src/
 ├── tune.py            fusion parameter search
 ├── evaluate.py        metrics
 └── retrieval/         bm25, dense, rerank, fusion, scoring, cache
+demo/app.py            Gradio UI
+api/                   FastAPI service and Dockerfile
 scripts/               train.sh, infer.sh
 notebooks/             train.ipynb, infer.ipynb (Colab)
 examples/data/         synthetic sample data
