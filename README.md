@@ -31,7 +31,7 @@ Built for the UIT Data Science Challenge 2026 legal retrieval task (8.5k documen
 
 - Documents are cut at *Điều → khoản → điểm*, then paragraph and sentence if a piece is still too long.
 - Every chunk starts with a header: document number, issuer, title and chapter. A clause from the middle of a document still says which document it belongs to.
-- When a long article is split, the later chunks repeat the article heading.
+- When a long article is split, the later chunks repeat the article heading (added after the competition; the scores above were measured without it).
 - For BM25, document numbers like `75/2017/NĐ-CP` stay one token, accents are removed and syllable bigrams stand in for Vietnamese word segmentation.
 
 ## Ablation
@@ -46,7 +46,7 @@ Each stage on the 1,000 validation questions, all other parameters fixed at the 
 | RRF fusion of the three | 94.7 | 85.6 |
 | Fusion + reranker | **96.4** | **87.6** |
 
-Fusion parameters were tuned on 700 of these questions. On the other 300, the full pipeline gets 95.5. Reproduce with `python -m src.pipeline ablate` (CPU only, reads the cached rankings in `artifacts/`).
+Fusion parameters were tuned on 700 of these questions. On the other 300, the full pipeline gets 95.5. Reproduce with `python -m src.pipeline ablate` (CPU only; needs `artifacts/` with its cached rankings and the competition labels in `data/`).
 
 ## Quickstart
 
@@ -77,7 +77,8 @@ python -m demo.app          # Gradio at http://localhost:7860
 uvicorn api.main:app --port 8000
 # or with Docker, artifacts mounted at run time
 docker build -f api/Dockerfile -t legal-retrieval-api .
-docker run -p 8000:8000 -v ./artifacts:/app/artifacts legal-retrieval-api
+docker run -p 8000:8000 -v "$(pwd)/artifacts:/app/artifacts" \
+  -v ~/.cache/huggingface:/root/.cache/huggingface legal-retrieval-api   # cache: no reranker re-download
 ```
 
 ```bash

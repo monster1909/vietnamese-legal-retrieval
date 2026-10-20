@@ -104,7 +104,7 @@ class DenseIndex:
         self.device = device or get_device()
         self.shard_size = shard_size
         self.n = len(embeddings)
-        # Embeddings are stored in fp16; fp32 on CPU would double RAM (~1.7 GB per index) for nothing.
+        # Embeddings are saved as fp16; upcasting on CPU only doubles RAM.
         self.shards = [
             torch.from_numpy(np.ascontiguousarray(embeddings[i : i + shard_size]))
             .to(self.device, dtype=torch.float16)
