@@ -302,13 +302,30 @@ def evaluate_val(data_dir: Path, art: Path, limit: int | None = None, rerank: bo
     return metrics
 
 
+def ablate_val(data_dir: Path, art: Path) -> None:
+    """Ablation table on the cached validation candidates (CPU only, no model is loaded)."""
+    from .data import load_train, split_train_val
+    from .retrieval.cache import CandidateCache
+    from .tune import ablate, load_best_config
+
+    _, val = split_train_val(load_train(Paths(root=data_dir)), CFG.train.val_size, CFG.train.seed)
+    chunk_doc = _load_chunks(art)["doc_id"].to_numpy()
+    results = ablate(
+        CandidateCache.load(art / "cache_val.npz"), chunk_doc, load_best_config(art / BEST_CONFIG),
+        {q.qid: q.answer for q in val}, [q.qid for q in val],
+    )
+    print(f"{'Setup':26s} {'Recall':>7s} {'MRR':>7s}")
+    for name, m in results.items():
+        print(f"{name:26s} {100 * m.recall:7.1f} {100 * m.mrr:7.1f}")
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="python -m src.pipeline", description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("train", "tune", "evaluate", "predict", "search"):
+    for name in ("train", "tune", "evaluate", "ablate", "predict", "search"):
         p = sub.add_parser(name)
         p.add_argument("--artifacts", type=Path, default=Path("artifacts"))
-        if name in ("train", "tune", "evaluate"):
+        if name in ("train", "tune", "evaluate", "ablate"):
             p.add_argument("--data", type=Path, default=Path("data"),
                            help="folder with selected-contexts.zip and train.json")
     sub.choices["tune"].add_argument("--trials", type=int, default=1500)
@@ -327,6 +344,8 @@ def main(argv: list[str] | None = None) -> None:
         tune(a.data, a.artifacts, a.trials)
     elif a.cmd == "evaluate":
         evaluate_val(a.data, a.artifacts, a.limit, rerank=not a.no_rerank)
+    elif a.cmd == "ablate":
+        ablate_val(a.data, a.artifacts)
     elif a.cmd == "predict":
         predict(a.questions, a.artifacts, a.out, a.k)
     else:

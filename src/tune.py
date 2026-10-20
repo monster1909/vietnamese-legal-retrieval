@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -21,13 +22,36 @@ def score_params(
     qids: Sequence[str],
     lo: int,
     hi: int,
+    weights: Sequence[float] | None = None,
 ) -> Metrics:
-    """Evaluate one parameter set on queries [lo, hi) of the cache."""
+    """Evaluate one parameter set on queries [lo, hi) of the cache; weights override the RRF weights."""
     preds: dict[str, list[int]] = {}
     for i in range(lo, hi):
-        rank_lists, weights = cache.rank_lists(i, p)
-        preds[qids[i]] = rank_one(rank_lists, weights, cache.rerank_lookup(i), chunk_doc, p)
+        rank_lists, w = cache.rank_lists(i, p)
+        preds[qids[i]] = rank_one(rank_lists, weights or w, cache.rerank_lookup(i), chunk_doc, p)
     return evaluate(preds, {qids[i]: gold[qids[i]] for i in range(lo, hi)})
+
+
+def ablate(
+    cache: CandidateCache,
+    chunk_doc: np.ndarray,
+    best: ScoringParams,
+    gold: dict[str, Sequence[str]],
+    qids: Sequence[str],
+) -> dict[str, Metrics]:
+    """Metrics of each retriever alone, their fusion, and fusion + reranker, under the tuned params."""
+    fused = [1.0, best.w_ft1, best.w_bm25]
+    variants = {
+        "BM25": ([0.0, 0.0, 1.0], 0.0),
+        "Bi-encoder, round 1": ([0.0, 1.0, 0.0], 0.0),
+        "Bi-encoder, round 2": ([1.0, 0.0, 0.0], 0.0),
+        "RRF fusion of the three": (fused, 0.0),
+        "Fusion + reranker": (fused, best.alpha),
+    }
+    return {
+        name: score_params(cache, chunk_doc, replace(best, alpha=alpha), gold, qids, 0, len(qids), weights)
+        for name, (weights, alpha) in variants.items()
+    }
 
 
 def _suggest_zeroable(trial, name: str, low: float, high: float) -> float:
